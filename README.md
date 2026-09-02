@@ -10,6 +10,7 @@ Toggl Track から指定した月の作業時間を CSV で書き出し、報告
 - `Currency` / `Amount` / `Billable` 列を除外（`Tags` 列はそのまま残ります）
 - 末尾に合計行を追加
 - 合計時間を入れた報告メッセージをクリップボードへコピー
+- **Slack へ CSV 添付付きで投稿**（任意・送信前に y/N の確認あり）
 - Finder で出力ファイルを表示
 
 ## 必要なもの
@@ -38,8 +39,29 @@ $EDITOR .env   # API トークンなどを設定
 | `TOGGL_OUTPUT_PREFIX` | | CSV ファイル名のプレフィックス（既定: `toggl-report`） |
 | `TOGGL_OUTPUT_DIR` | | CSV の出力先ディレクトリ（既定: `$HOME`） |
 | `TOGGL_REPORT_MENTIONS` | | 報告メッセージ先頭に差し込むメンション |
+| `SLACK_BOT_TOKEN` | | Slack Bot User OAuth Token（`xoxb-`） |
+| `SLACK_CHANNEL_ID` | | 投稿先チャンネル ID（`C…`） |
 
 `.env` の場所は環境変数 `TOGGL_REPORT_ENV` で上書きできます。
+
+## Slack 送信（任意）
+
+`SLACK_BOT_TOKEN` と `SLACK_CHANNEL_ID` の**両方**を設定すると、CSV 生成後に送信確認のプロンプトが出ます。どちらか欠けている場合は従来どおりクリップボードへのコピーのみで終了します。
+
+### Slack app の準備
+
+1. https://api.slack.com/apps → **Create New App** → *From scratch* でアプリを作成し、対象ワークスペースを選択
+2. **OAuth & Permissions** → *Scopes* → *Bot Token Scopes* に **`files:write`** を追加
+3. 同じページの **Install to Workspace** でインストールし、**Bot User OAuth Token**（`xoxb-` で始まる）をコピーして `.env` の `SLACK_BOT_TOKEN` に設定
+4. 投稿したいチャンネルで `/invite @<アプリ名>` を実行して bot を招待
+5. チャンネル ID（`C` で始まる）を `.env` の `SLACK_CHANNEL_ID` に設定
+   （チャンネル名を右クリック → *リンクをコピー* すると URL 末尾に含まれています）
+
+### メンションについて
+
+`TOGGL_REPORT_MENTIONS` に平文で `@name` と書いても、Slack API 経由の投稿では**ただの文字列として表示され、通知は飛びません**。実際にメンションさせるには `<@U01ABCDEFGH>` 形式のユーザー ID を指定してください。
+
+投稿は [files.getUploadURLExternal → ファイル本体の POST → files.completeUploadExternal](https://docs.slack.dev/messaging/working-with-files/) の 3 ステップで行っています。
 
 ## 使い方
 
@@ -54,6 +76,8 @@ alias toggl-report='~/Code/toggl-report/toggl-report.sh'
 ```
 
 実行すると対象月の選択を求められ、`<プレフィックス>-YYYY-MM.csv` が出力されます。
+
+Slack 設定済みの場合は、続けて送信内容と宛先が表示され `y` を入力すると投稿されます。`y` 以外はすべて中止扱いです。
 
 ## ライセンス
 
