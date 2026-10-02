@@ -11,6 +11,7 @@ Toggl Track から指定した月の作業時間を CSV で書き出し、報告
 - 末尾に合計行を追加
 - 合計時間を入れた報告メッセージをクリップボードへコピー
 - **Slack へ CSV 添付付きで投稿**（任意・送信前に y/N の確認あり）
+- **Misoca に請求書を作成**（任意・作成前に y/N の確認あり。送付はしない）
 - Finder で出力ファイルを表示
 
 ## 必要なもの
@@ -41,6 +42,8 @@ $EDITOR .env   # API トークンなどを設定
 | `TOGGL_REPORT_MENTIONS` | | 報告メッセージ先頭に差し込むメンション |
 | `SLACK_BOT_TOKEN` | | Slack Bot User OAuth Token（`xoxb-`） |
 | `SLACK_CHANNEL_ID` | | 投稿先チャンネル ID（`C…`） |
+| `MISOCA_INVOICE_ENDPOINT` | | 請求書作成 API の URL（notion-update-trigger の `/api/misoca/invoice`） |
+| `MISOCA_INVOICE_BASIC_AUTH` | | 上記 API の Basic 認証（`user:password`） |
 
 `.env` の場所は環境変数 `TOGGL_REPORT_ENV` で上書きできます。
 
@@ -63,6 +66,15 @@ $EDITOR .env   # API トークンなどを設定
 
 投稿は [files.getUploadURLExternal → ファイル本体の POST → files.completeUploadExternal](https://docs.slack.dev/messaging/working-with-files/) の 3 ステップで行っています。
 
+## Misoca 請求書作成（任意）
+
+`MISOCA_INVOICE_ENDPOINT` と `MISOCA_INVOICE_BASIC_AUTH` の**両方**を設定すると、最後に請求書を作成するか確認されます。`y` で、表示した合計時間（小数第2位まで）を数量にした請求書が Misoca に作成されます。作成されるだけで、取引先への送付はされません。
+
+Misoca API の OAuth トークンは 1 日で失効し、更新のたびに入れ替わるため、トークン管理は [notion-update-trigger](https://github.com/yumikokh/notion-update-trigger) の `/api/misoca/invoice` に任せています。取引先・単価・件名などの設定と初回の認可手順は notion-update-trigger の README を参照してください。同じ API を AI 秘書などからリモートで呼び出すこともできます。
+
+- 発行日は対象月の末日、支払期限は翌月末
+- 同じ月の請求書が作成済みの場合は、もう 1 件作るか確認されます（不要な方は Misoca 上で削除してください）
+
 ## 使い方
 
 ```bash
@@ -78,6 +90,8 @@ alias toggl-report='~/Code/toggl-report/toggl-report.sh'
 実行すると対象月の選択を求められ、`<プレフィックス>-YYYY-MM.csv` が出力されます。
 
 Slack 設定済みの場合は、続けて送信内容と宛先が表示され `y` を入力すると投稿されます。`y` 以外はすべて中止扱いです。
+
+Misoca 設定済みの場合は、その後に請求書を作成するか確認されます（こちらも `y` 以外は中止）。
 
 ## ライセンス
 

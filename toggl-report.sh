@@ -101,6 +101,69 @@ print(json.dumps([{'id': os.environ['FILE_ID'], 'title': os.environ['TITLE']}]))
 }
 
 # ============================================
+# Misoca 請求書作成ヘルパー
+# （notion-update-trigger の /api/misoca/invoice を呼び出す）
+# ============================================
+
+# stdin の JSON から $1（ドット区切りのキー）の値を取り出す。取れなければ空文字
+json_get() {
+  python3 -c "
+import sys, json
+try:
+    v = json.load(sys.stdin)
+    for k in sys.argv[1].split('.'):
+        v = v[k]
+    print(v)
+except Exception:
+    pass
+" "$1"
+}
+
+# $1: 対象月 (YYYY-MM) / $2: 稼働時間（十進数）
+misoca_create_invoice() {
+  local month="$1" hours="$2" force="false"
+  local payload resp http_code body message
+
+  while true; do
+    payload="$(MONTH="$month" HOURS="$hours" FORCE="$force" python3 -c "
+import json, os
+print(json.dumps({'month': os.environ['MONTH'], 'hours': float(os.environ['HOURS']), 'force': os.environ['FORCE'] == 'true'}))
+")"
+    resp="$(curl -sS -w '\n%{http_code}' -X POST "$MISOCA_INVOICE_ENDPOINT" \
+      -u "$MISOCA_INVOICE_BASIC_AUTH" \
+      -H "Content-Type: application/json" \
+      -d "$payload")" || return 1
+    http_code="${resp##*$'\n'}"
+    body="${resp%$'\n'*}"
+
+    case "$http_code" in
+      200)
+        echo "Misoca に請求書を作成しました（ID: $(printf '%s' "$body" | json_get result.invoiceId)）"
+        return 0
+        ;;
+      409)
+        printf '%s' "${month} の請求書は作成済みです（ID: $(printf '%s' "$body" | json_get result.invoiceId)）。もう1件作成しますか? [y/N]: "
+        read -r reply || reply=""
+        if [[ "$reply" == [yY] || "$reply" == [yY][eE][sS] ]]; then
+          echo "（不要になった請求書は Misoca 上で削除してください）"
+          force="true"
+          continue
+        fi
+        echo "請求書の作成を中止しました。"
+        return 0
+        ;;
+      *)
+        message="$(printf '%s' "$body" | json_get message)"
+        [[ -z "$message" ]] && message="$(printf '%s' "$body" | json_get error)"
+        [[ -z "$message" ]] && message="${body:0:200}"
+        echo "請求書の作成に失敗しました (HTTP ${http_code}): ${message}" >&2
+        return 1
+        ;;
+    esac
+  done
+}
+
+# ============================================
 
 # Base64エンコードした認証トークン
 AUTH=$(printf '%s:api_token' "$TOGGL_API_TOKEN" | base64)
@@ -228,6 +291,21 @@ if [[ -n "${SLACK_BOT_TOKEN:-}" && -n "${SLACK_CHANNEL_ID:-}" ]]; then
     fi
   else
     echo "送信を中止しました。"
+  fi
+fi
+
+# Misoca に請求書を作成（MISOCA_INVOICE_ENDPOINT と MISOCA_INVOICE_BASIC_AUTH が両方設定されている場合のみ）
+if [[ -n "${MISOCA_INVOICE_ENDPOINT:-}" && -n "${MISOCA_INVOICE_BASIC_AUTH:-}" ]]; then
+  echo
+  printf '%s' "${display_month}月分（${total_decimal}時間）の請求書を Misoca に作成しますか? [y/N]: "
+  read -r reply || reply=""
+  if [[ "$reply" == [yY] || "$reply" == [yY][eE][sS] ]]; then
+    if ! misoca_create_invoice "$selected" "$total_decimal"; then
+      echo "CSV は ${output_file} に残っています。" >&2
+      exit 1
+    fi
+  else
+    echo "請求書の作成をスキップしました。"
   fi
 fi
 
