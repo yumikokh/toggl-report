@@ -12,6 +12,43 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 env_file="${TOGGL_REPORT_ENV:-${script_dir}/.env}"
 
+# ============================================
+# 引数（すべて任意。省略時は従来どおり対話で進む）
+# ============================================
+usage() {
+  cat <<'USAGE'
+使い方: toggl-report.sh [--month YYYY-MM] [-y|--yes] [--no-slack] [--no-open]
+
+  --month YYYY-MM  対象月を指定する（省略時は今月・先月から選択）
+  -y, --yes        Slack 送信の確認を省略して送信する
+  --no-slack       Slack に送信しない
+  --no-open        終了時に Finder で出力ファイルを開かない
+USAGE
+}
+
+arg_month=""
+assume_yes=0
+no_slack=0
+no_open=0
+while (( $# > 0 )); do
+  case "$1" in
+    --month)
+      if (( $# < 2 )); then echo "エラー: --month には YYYY-MM を指定してください" >&2; exit 1; fi
+      arg_month="$2"; shift 2 ;;
+    --month=*) arg_month="${1#*=}"; shift ;;
+    -y|--yes) assume_yes=1; shift ;;
+    --no-slack) no_slack=1; shift ;;
+    --no-open) no_open=1; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "エラー: 不明な引数です: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+if [[ -n "$arg_month" && ! "$arg_month" =~ ^[0-9]{4}-(0[1-9]|1[0-2])$ ]]; then
+  echo "エラー: --month は YYYY-MM 形式で指定してください: ${arg_month}" >&2
+  exit 1
+fi
+
 if [[ -f "$env_file" ]]; then
   # shellcheck disable=SC1090
   set -a; source "$env_file"; set +a
@@ -109,14 +146,18 @@ AUTH=$(printf '%s:api_token' "$TOGGL_API_TOKEN" | base64)
 this_month=$(date +%Y-%m)
 last_month=$(date -v-1m +%Y-%m)
 
-echo "対象月を選択してください:"
-select choice in "$this_month" "$last_month"; do
-  if [[ -n "$choice" ]]; then
-    selected="$choice"
-    break
-  fi
-  echo "正しい番号を入力してください。"
-done
+if [[ -n "$arg_month" ]]; then
+  selected="$arg_month"
+else
+  echo "対象月を選択してください:"
+  select choice in "$this_month" "$last_month"; do
+    if [[ -n "$choice" ]]; then
+      selected="$choice"
+      break
+    fi
+    echo "正しい番号を入力してください。"
+  done
+fi
 
 # 開始日・終了日を算出
 start_date="${selected}-01"
@@ -209,7 +250,7 @@ echo "合計: ${total_duration} (${total_decimal}時間)"
 echo "クリップボードにメッセージをコピーしました"
 
 # Slack へ送信（SLACK_BOT_TOKEN と SLACK_CHANNEL_ID が両方設定されている場合のみ）
-if [[ -n "${SLACK_BOT_TOKEN:-}" && -n "${SLACK_CHANNEL_ID:-}" ]]; then
+if (( no_slack == 0 )) && [[ -n "${SLACK_BOT_TOKEN:-}" && -n "${SLACK_CHANNEL_ID:-}" ]]; then
   echo
   echo "─────────── Slack 送信内容 ───────────"
   echo "宛先チャンネル: ${SLACK_CHANNEL_ID}"
@@ -217,8 +258,13 @@ if [[ -n "${SLACK_BOT_TOKEN:-}" && -n "${SLACK_CHANNEL_ID:-}" ]]; then
   echo "───"
   echo "$message"
   echo "──────────────────────────────────────"
-  printf '%s' "この内容で Slack に送信しますか? [y/N]: "
-  read -r reply || reply=""
+  if (( assume_yes == 1 )); then
+    echo "--yes が指定されているため、確認なしで送信します。"
+    reply="y"
+  else
+    printf '%s' "この内容で Slack に送信しますか? [y/N]: "
+    read -r reply || reply=""
+  fi
   if [[ "$reply" == [yY] || "$reply" == [yY][eE][sS] ]]; then
     if slack_send "$output_file" "$message"; then
       echo "Slack に送信しました。"
@@ -231,4 +277,6 @@ if [[ -n "${SLACK_BOT_TOKEN:-}" && -n "${SLACK_CHANNEL_ID:-}" ]]; then
   fi
 fi
 
-open -R "$output_file"
+if (( no_open == 0 )); then
+  open -R "$output_file"
+fi

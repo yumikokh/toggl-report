@@ -79,6 +79,20 @@ alias toggl-report='~/Code/toggl-report/toggl-report.sh'
 
 Slack 設定済みの場合は、続けて送信内容と宛先が表示され `y` を入力すると投稿されます。`y` 以外はすべて中止扱いです。
 
+## 引数（非対話で実行する）
+
+```bash
+./toggl-report.sh --month 2026-10 --no-slack --no-open   # CSV だけ作る
+./toggl-report.sh --month 2026-10 --yes                  # 確認なしで Slack に送る
+```
+
+| 引数 | 説明 |
+|---|---|
+| `--month YYYY-MM` | 対象月を指定する（省略時は今月・先月から選択） |
+| `-y`, `--yes` | Slack 送信の確認を省略する |
+| `--no-slack` | Slack に送信しない |
+| `--no-open` | 終了時に Finder を開かない |
+
 ## ライセンス
 
 MIT
